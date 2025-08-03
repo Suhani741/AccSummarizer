@@ -18,18 +18,17 @@ if (!devRevApiKey || !slackBotToken || !slackChannelId) {
 // Function to fetch opportunities data from DevRev
 async function fetchOpportunities() {
   try {
-    const response = await axios.get('https://api.devrev.ai/v1/opportunities', {  // Update this URL with the correct one
+    const response = await axios.get('https://api.devrev.ai/v1/opportunities', {
       headers: {
         'Authorization': `Bearer ${devRevApiKey}`,
       },
     });
 
-    console.log("API Response:", response.data);  // Log the response to debug
-    return response.data;
-  } catch (error) {
-    // Provide more detailed error information
+    // Adjust this if the API response structure is different
+    return response.data.opportunities || response.data;
+  } catch (error: any) {
     if (error.response) {
-      console.error(`Error fetching opportunities data: ${error.response.status} - ${error.response.data}`);
+      console.error(`Error fetching opportunities data: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
     } else {
       console.error('Error fetching opportunities data:', error.message);
     }
@@ -37,10 +36,10 @@ async function fetchOpportunities() {
   }
 }
 
-// Function to send summary to Slack with better formatting
+// Function to send summary to Slack
 async function postToSlack(message: string) {
   try {
-    await axios.post('https://slack.com/api/chat.postMessage', {
+    const response = await axios.post('https://slack.com/api/chat.postMessage', {
       channel: slackChannelId,
       text: message,
     }, {
@@ -49,16 +48,19 @@ async function postToSlack(message: string) {
         'Content-Type': 'application/json',
       },
     });
+    if (!response.data.ok) {
+      throw new Error(`Slack API error: ${JSON.stringify(response.data)}`);
+    }
     console.log('Summary posted to Slack!');
-  } catch (error) {
-    console.error('Error posting to Slack:', (error as Error).message);
+  } catch (error: any) {
+    console.error('Error posting to Slack:', error.message);
   }
 }
 
-// Function to create the opportunity summary with additional metrics
+// Function to create the opportunity summary
 async function createOpportunitySummary() {
   const opportunities = await fetchOpportunities();
-  if (!opportunities) {
+  if (!opportunities || opportunities.length === 0) {
     console.log('No opportunity data found.');
     return;
   }
@@ -69,8 +71,8 @@ async function createOpportunitySummary() {
   let totalDealSize = 0;
 
   opportunities.forEach((opp: any) => {
-    const revenue = opp.revenue || opp.financials?.revenue;
-    if (revenue !== undefined) {
+    const revenue = opp.revenue ?? opp.financials?.revenue;
+    if (typeof revenue === 'number') {
       totalRevenue += revenue;
       totalDealSize += revenue;
       if (revenue > topAccount.revenue) {
@@ -84,11 +86,11 @@ async function createOpportunitySummary() {
   const averageDealSize = dealCount > 0 ? totalDealSize / dealCount : 0;
 
   const message = `
-    *Opportunity Summary:*
-    - *Total Deals:* ${dealCount}
-    - *Total Revenue:* $${totalRevenue.toFixed(2)}
-    - *Top Account:* ${topAccount.account}
-    - *Average Deal Size:* $${averageDealSize.toFixed(2)}
+*Opportunity Summary:*
+- *Total Deals:* ${dealCount}
+- *Total Revenue:* $${totalRevenue.toFixed(2)}
+- *Top Account:* ${topAccount.account}
+- *Average Deal Size:* $${averageDealSize.toFixed(2)}
   `;
 
   await postToSlack(message);
